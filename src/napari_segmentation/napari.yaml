@@ -1,0 +1,9 @@
+name: napari_segmentation
+contributions:
+  commands:
+    - id: napari_segmentation.open_widget
+      title: Simple CCI annotator plugin
+      python_name: napari_segmentation:SimpleCciAnnotatorQWidget
+  widgets:
+    - command: napari_segmentation.open_widget  # note, same as command.id above
+      display_name: Simple CCI Annotator Plugin
