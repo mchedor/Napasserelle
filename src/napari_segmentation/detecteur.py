@@ -1,0 +1,234 @@
+from pathlib import Path
+import traceback
+
+from qtpy.QtWidgets import QWidget, QVBoxLayout, QLabel, QProgressBar, QApplication
+from qtpy.QtCore import Qt, QThread, Signal
+
+
+# ---------------------------
+# Thread pour simuler une tâche longue
+# ---------------------------
+class WorkerThread(QThread):
+    progress = Signal(int)  # signal pour la progression
+    finished = Signal()     # signal quand terminé
+    error = Signal(str)
+
+    def __init__(self, model_path, image_paths, resolution, batch_size=8):
+        super().__init__()
+        
+        self.model_path = model_path
+        self.image_paths = image_paths
+        self.resolution = resolution
+        self.batch_size = batch_size
+
+    # -------------------------
+    # 1. LOAD MODEL
+    # -------------------------
+    def load_model(self):
+        
+        self.model = self.UnetPlusPlus(
+            encoder_name="resnext50_32x4d",
+            encoder_weights=None,
+            in_channels=3,
+            classes=1
+        ).to(self.device)
+        
+
+        self.model.load_state_dict(self.torch.load(self.model_path, map_location=self.device,weights_only=True))
+        self.model.eval()
+
+    # -------------------------
+    # 2. PREPROCESS SINGLE IMAGE
+    # -------------------------
+    def preprocess(self, path):
+        image = self.cv2.imread(path)
+        if image is None:
+            raise ValueError(f"Image invalide: {path}")
+
+        image = self.cv2.cvtColor(image, self.cv2.COLOR_BGR2RGB)
+
+        augmented = self.transform(image=image)
+        image = augmented["image"]  # HWC float32
+
+        return image
+
+    # -------------------------
+    # 3. MAKE BATCH
+    # -------------------------
+    def make_batch(self, batch_paths):
+        images = []
+        valid_paths = []
+
+        for p in batch_paths:
+            img = self.preprocess(p)
+            images.append(img)
+            valid_paths.append(p)
+
+        tensor = self.torch.from_numpy(self.np.stack(images))
+        tensor = tensor.permute(0, 3, 1, 2).float().to(self.device)
+
+        return tensor, valid_paths
+
+    # -------------------------
+    # 4. INFERENCE
+    # -------------------------
+    def predict(self, batch_tensor):
+        with self.torch.no_grad():
+            preds = self.model(batch_tensor/255)
+            preds = self.torch.sigmoid(preds)
+        return preds
+
+    # -------------------------
+    # 5. POSTPROCESS SINGLE MASK
+    # -------------------------
+    def postprocess(self, pred, path):
+
+        path = Path(path)
+    
+        # dossier .temp_masques au même niveau que l'image
+        out_dir = path.parent / "masques"
+        out_dir.mkdir(exist_ok=True)
+        out_dir = out_dir / ".temp_masques"
+        out_dir.mkdir(exist_ok=True)
+        # nom fichier
+        out_path = out_dir / f"{path.stem}_mask.png"
+
+        # sauvegarde
+        pred = self.np.squeeze(pred)
+        pred = (pred * 255).astype(self.np.uint8)
+        #pred2 = self.cv2.imread(out_path, self.cv2.IMREAD_GRAYSCALE).astype(self.np.uint8)
+        #pred3 = self.cv2.addWeighted(pred, 0.5, pred2, 0.5, 0)
+        self.cv2.imwrite(str(out_path), pred)
+
+    # -------------------------
+    # 6. RUN PIPELINE
+    # -------------------------
+    def run(self):
+        try:
+            partie_import = 20
+            total_steps = 5  # imports + model + data loop
+            step = 0
+
+            # =========================
+            # 1. IMPORTS LOURDS (progressif)
+            # =========================
+            import torch
+            step += 1
+            self.progress.emit(int((step / total_steps) * partie_import))
+            
+
+            import cv2
+            step += 1
+            self.progress.emit(int((step / total_steps) * partie_import))
+
+            import numpy as np
+            step += 1
+            self.progress.emit(int((step / total_steps) * partie_import))
+
+            from segmentation_models_pytorch import UnetPlusPlus
+            step += 1
+            self.progress.emit(int((step / total_steps) * partie_import))
+
+            import albumentations as A
+            step += 1
+            self.progress.emit(int((step / total_steps) * partie_import))
+
+            # expose libs en attributs si besoin ailleurs
+            self.torch = torch
+            self.cv2 = cv2
+            self.np = np
+            self.UnetPlusPlus = UnetPlusPlus
+            self.A = A
+
+            self.device = "cpu"#torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+            self.transform = A.Compose([
+                A.Resize(height=self.resolution[0], width=self.resolution[1]),
+                A.Normalize(
+                    mean=(0.485, 0.456, 0.406),
+                    std=(0.229, 0.224, 0.225)
+                )
+            ]) # type: ignore
+
+            self.load_model()
+
+            total = len(self.image_paths)
+
+            processed = 0
+
+            for i in range(0, total, self.batch_size):
+
+                batch_paths = self.image_paths[i:min(i + self.batch_size, total)]
+
+                batch_tensor, valid_paths = self.make_batch(batch_paths)
+
+                preds = self.predict(batch_tensor)
+                preds = preds.detach().cpu().numpy()
+
+                for pred, path in zip(preds, valid_paths):
+                    self.postprocess(pred, path)
+
+                processed += len(batch_paths)
+                self.progress.emit(partie_import +int(processed * (100-partie_import) / total))
+
+            self.finished.emit()
+
+        except Exception as e:
+            print("CRASH DETECTED")
+            print(traceback.format_exc(), flush=True)
+            self.error.emit(str(e))
+
+
+# ---------------------------
+# Widget de chargement
+# ---------------------------
+class LoadingWidget(QWidget):
+    progress = Signal(int)
+    finished = Signal()  # signal pour dire "on a fini"
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+
+        layout = QVBoxLayout(self)
+        layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
+
+        self.model_path : Path | None = None
+        self.resolution : tuple[int, int] | None = None
+        self.device = "cpu"
+
+        self.label = QLabel("Chargement en cours...")
+        self.progress_bar = QProgressBar()
+        self.progress_bar.setRange(0, 100)
+
+        layout.addWidget(self.label)
+        layout.addWidget(self.progress_bar)
+        self.setLayout(layout)
+
+        self.progress.connect(self.progress_bar.setValue)
+        #self.finished.connect(self.on_finished)
+
+        self._thread : WorkerThread   # sera créé à chaque start
+
+    def create_model(self, model_path : Path, resolution : tuple[int, int], device : str = "cpu"):
+        self.model_path = model_path
+        self.resolution = resolution
+        self.device = device
+
+    def start(self, image_paths):
+        if self.model_path is not None and self.resolution is not None:
+            self.progress_bar.setValue(0)
+
+            self._thread = WorkerThread(model_path=self.model_path, image_paths=image_paths, resolution=self.resolution)
+
+            self._thread.progress.connect(self.progress_bar.setValue)
+            self._thread.finished.connect(self.on_finished)
+
+            self._thread.start()
+            #self.on_finished()
+        else:
+            raise AttributeError("Aucun modele n'est disponible")
+
+    def on_finished(self):
+        self.finished.emit()  # informe le SceneManager que c'est fini
+
+
