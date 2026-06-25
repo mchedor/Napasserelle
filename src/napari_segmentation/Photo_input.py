@@ -1,6 +1,5 @@
 from pathlib import Path
 from shutil import copy2
-import warnings
 
 import cv2
     
@@ -18,14 +17,10 @@ class PhotoModele :
                 raise ValueError("La destination n'est pas un dossier")
             
         self.shape : tuple = (256+128,512+256)
-        #p.name
-        #p.parent-s
 
 
     def setImages(self, newImages : list[Path]):
-        #--------sans pytorch
         newImages = [p for p in newImages if not p.name.endswith("_mask.png")]
-        #-----------
         self.images = sorted(newImages)
         self.index = -1
     

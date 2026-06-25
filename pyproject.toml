@@ -1,7 +1,7 @@
 [project]
 name = "napari_segmentation"
 dynamic = ["version"]
-description = "Plugin to easly test a yolo model and retrain it"
+description = "Plugin napari pour fabriquer, superviser et traiter des masques de segmentation binaire à partir d'un modèle de segmentation-models-pytorch."
 readme = "README.md"
 license = {file = "LICENSE"}
 authors = [

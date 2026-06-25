@@ -1,9 +1,12 @@
 name: napari_segmentation
+display_name: Segmentation Binaire
+visibility: public
+categories: ["Annotation", "Dataset", "Segmentation", "Visualization"]
 contributions:
   commands:
     - id: napari_segmentation.open_widget
-      title: Simple CCI annotator plugin
-      python_name: napari_segmentation:SimpleCciAnnotatorQWidget
+      title: Plugin de segmentation binaire 
+      python_name: napari_segmentation:SegmentationBinaire
   widgets:
-    - command: napari_segmentation.open_widget  # note, same as command.id above
-      display_name: Simple CCI Annotator Plugin
+    - command: napari_segmentation.open_widget
+      display_name: Plugin de Segmentation Binaire

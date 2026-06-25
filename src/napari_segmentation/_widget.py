@@ -1,14 +1,12 @@
 from __future__ import annotations
 
-#import json
-import re
-import shutil
-from datetime import datetime
 from pathlib import Path
 import napari
+from napari.layers import Labels, Shapes, Image
+from napari.utils import DirectLabelColormap
 import numpy as np
 import cv2 
-from qtpy.QtCore import Qt, QThread, QTimer
+from qtpy.QtCore import QTimer
 from qtpy.QtWidgets import (
     QFileDialog,
     QHBoxLayout,
@@ -18,110 +16,83 @@ from qtpy.QtWidgets import (
     QPushButton,
     QVBoxLayout,
     QWidget,
-    QShortcut,
-    QSlider,
+    QShortcut
 )
 from qtpy.QtGui import QKeySequence
-from napari.utils.colormaps import Colormap
+
 
 from .Cleaner import CleanerModele  
 from .Photo_input import PhotoModele
-from typing import Generator
 from .detecteur import LoadingWidget
 from ._modification_widget import EditWidget
 
 
-class SimpleCciAnnotatorQWidget(QWidget):
-    """SMP visualisation for napari.
+class SegmentationBinaire(QWidget):
+    """Binary segmentation tools for napari.
 
     Workflow:
-    1) Select model path (.pth) and load model
-    2) Predict masque on the active image
-    3) User edits shapes
-    4) save
-    5) next photo
+    1) Select a model path (.pth)
+    2) Select an input image folder
+    3) Predict masks for the images
+    4) The user visualizes, modifies, and annotates the results
+    5) Accept, refuse, or pass
     """
 
-    PRED_LAYER_NAME = "Masque"
-
     def __init__(self, napari_viewer: napari.Viewer):
+        
+        #~~~~~~~~~~~~~~~~~~ Init
         super().__init__()
-        print("Bienvenu dans ce plugin !")
         self.napari_viewer = napari_viewer
-        self.setWindowTitle("Simple CCI Annotator")
-
-        self._model_path: Path | None = None
+        self.setWindowTitle("Segmentation Binaire Visualiseur")
+        
+        #~~~~~~~~~~~~~~~~~~ Path et Object de traitement
+        #Model de deeplearning contenu dans self._loading_widget
+        self._input_PhotoModele : PhotoModele | None = None
         self._destination_path: Path | None = None
-        self.input_PhotoModele : PhotoModele | None = None
-        self.cleaner : CleanerModele = CleanerModele()
-        self._image_layer = None
-        self._mask_layer = None
-        self._mask_shape_layer = None
-        self._pred_layer = None
+        self._cleaner : CleanerModele = CleanerModele()
+        
+        #~~~~~~~~~~~~~~~~~~ Layer
+        self._mask_shape_layer : Shapes | None = None
+        self._mask_layer : Labels | None = None
+        self._pred_layer : Image | None = None
+        self._image_layer : Image | None = None
+
+        #~~~~~~~~~~~~~~~~~~ Modes
         self._edit_pred_mode : bool = False
+        """True si mode édition (Label) et False si mode Shape
+        """
 
-        self._spinner_timer = QTimer(self)
-        self._spinner_timer.setInterval(400)
-        self._spinner_timer.timeout.connect(self._tick_spinner)
-        self._spinner_frames = ["Retraining .", "Retraining ..", "Retraining ...", "Retraining"]
-        self._spinner_index = 0
 
+
+        #------------------ Model
         self._model_path_input = QLineEdit()
-        self._model_path_input.setPlaceholderText("Path to Unet model (.pth) or model folder")
+        self._model_path_input.setPlaceholderText("Path to Unet model (.pth)")
 
         browse_button = QPushButton("Browse")
         browse_button.clicked.connect(self._on_browse_model)
 
-        self.loading_widget = LoadingWidget(parent=self)
-        self.loading_widget.hide()
-
-        #load_button = QPushButton("Load model")
-        #load_button.clicked.connect(self._on_load_model)
-
+        #------------------ Prediction
         predict_button = QPushButton("Predict")
         predict_button.clicked.connect(self._on_predict)
 
-        self.row_path_input = QLineEdit()
-        self.row_path_input.setPlaceholderText("Path of dir of rows")
+        self._loading_widget = LoadingWidget(parent=self)
+        self._loading_widget.hide()
 
-        browse_row_button = QPushButton("Browse")
-        browse_row_button.clicked.connect(self._on_browse_input_row)
+        #------------------ Image
+        self._image_folder_path_input = QLineEdit()
+        self._image_folder_path_input.setPlaceholderText("Path of dir of image")
 
+        browse_image_folder_button = QPushButton("Browse")
+        browse_image_folder_button.clicked.connect(self._on_browse_image_folder_input_)
+
+        #------------------ Destination
         self.destination_path_input = QLineEdit()
         self.destination_path_input.setPlaceholderText("Path to save mask")
 
         browse_destination_button = QPushButton("Browse")
         browse_destination_button.clicked.connect(self._on_browse_destination)
 
-        
-
-        add_correction_button = QPushButton("Add correction")
-        #add_correction_button.clicked.connect(self._on_add_correction)
-
-        self._retrain_button = QPushButton("Retrain")
-        #self._retrain_button.clicked.connect(self._on_retrain)
-
-        row_model = QHBoxLayout()
-        row_model.addWidget(QLabel("Model"))
-        row_model.addWidget(self._model_path_input)
-        row_model.addWidget(browse_button)
-
-        row_actions = QHBoxLayout()
-        #row_actions.addWidget(load_button)
-        row_actions.addWidget(predict_button)
-        row_actions.addWidget(self.loading_widget)
-
-        row_input = QHBoxLayout()
-        row_input.addWidget(QLabel("Input"))
-        row_input.addWidget(self.row_path_input)
-        row_input.addWidget(browse_row_button)
-
-        row_destination = QHBoxLayout()
-        row_destination.addWidget(QLabel("Destination"))
-        row_destination.addWidget(self.destination_path_input)
-        row_destination.addWidget(browse_destination_button)
-
-
+        #------------------ Navigation
         next_button = QPushButton("Suivant")
         next_button.clicked.connect(self._next_image)
 
@@ -134,45 +105,64 @@ class SimpleCciAnnotatorQWidget(QWidget):
         refuser_button = QPushButton("Refuser")
         refuser_button.clicked.connect(self._refuser_image)
 
-        
-        
+        #------------------ Update
         update_button = QPushButton("Update")
         update_button.clicked.connect(self._update_image)
 
-        self.edit_widget = EditWidget(self.cleaner)
+        #------------------ Edition Prediction
+        self.edit_widget = EditWidget(self._cleaner)
         self.edit_widget.modeChanged.connect(self._on_mode_changed)
         self.edit_widget.valuesChanged.connect(self._on_values_changed)
 
 
-        #row_train = QHBoxLayout()
-        #row_train.addWidget(add_correction_button)
-        #row_train.addWidget(self._retrain_button)
-        #row_train.addStretch(1)
+
+        #++++++++++++++++++ Model
+        row_model = QHBoxLayout()
+        row_model.addWidget(QLabel("Model"))
+        row_model.addWidget(self._model_path_input)
+        row_model.addWidget(browse_button)
+
+        #++++++++++++++++++ Prediction
+        row_prediction = QHBoxLayout()
+        row_prediction.addWidget(predict_button)
+        row_prediction.addWidget(self._loading_widget)
+
+        #++++++++++++++++++ Image
+        row_input = QHBoxLayout()
+        row_input.addWidget(QLabel("Input"))
+        row_input.addWidget(self._image_folder_path_input)
+        row_input.addWidget(browse_image_folder_button)
+
+        #++++++++++++++++++ Destination
+        row_destination = QHBoxLayout()
+        row_destination.addWidget(QLabel("Destination"))
+        row_destination.addWidget(self.destination_path_input)
+        row_destination.addWidget(browse_destination_button)
+
+        #++++++++++++++++++ Navigation
         col_navigation = QVBoxLayout()
         col_navigation.addWidget(next_button)
 
         row_navigation = QHBoxLayout()
         row_navigation.addWidget(accept_button)
         row_navigation.addWidget(refuser_button)
-        #row_navigation.addWidget(reset_button)
         col_navigation.addLayout(row_navigation)
 
-
+        #++++++++++++++++++ Update + Edition Prediction
         col_modification = QVBoxLayout()
         col_modification.addWidget(update_button)
         col_modification.addWidget(self.edit_widget)
         
 
 
-
+        ################## All
         layout = QVBoxLayout()
         layout.addLayout(row_model)
-        layout.addLayout(row_actions)
+        layout.addLayout(row_prediction)
         layout.addLayout(row_input)
         layout.addLayout(row_destination)
         layout.addLayout(col_navigation)
         layout.addLayout(col_modification)
-        #layout.addLayout(row_train)
         layout.addStretch(1)
         self.setLayout(layout)
 
@@ -182,39 +172,64 @@ class SimpleCciAnnotatorQWidget(QWidget):
     def _show_error(self, text: str) -> None:
         QMessageBox.critical(self, "Simple CCI Annotator", text)
 
-    def _accept_image(self):
-        if self.input_PhotoModele is not None:
-            try:
-                img, proba = self.input_PhotoModele.accepter(self._points_to_mask(self._mask_shape_layer, self.input_PhotoModele.shape[:2]))
-                self.cleaner.setImageMasque(img, proba)
-                self._show_image(img, proba)
+    def _next_image(self):
+        if self._input_PhotoModele is not None:
+            if self._edit_pred_mode: 
+                self._show_error(f"Veuillez appliquer les modifications")
+            else:
+                try:
+                    img, proba = next(self._input_PhotoModele)
+                    self._cleaner.setImageMasque(img, proba)
+                    self._show_image(img, proba)
 
-            except StopIteration:
-                self._show_info("Toute les images ont été traitées")
-            except ValueError as e:
-                self._show_error(f"impossible de charger {e}")
+                except StopIteration:
+                    self._show_info("Toute les images ont été traitées")
+                except ValueError as e:
+                    self._show_error(f"impossible de charger {e}")
+        else : 
+            self._show_error("Il n'y a aucun dossier à traiter")
+
+    def _accept_image(self):
+        if self._input_PhotoModele is not None:
+            if self._edit_pred_mode: 
+                self._show_error(f"Veuillez appliquer les modifications")
+            else:
+                try:
+                    if self._mask_shape_layer is not None:
+                        img, proba = self._input_PhotoModele.accepter(self._mask_shape_layer.to_labels(labels_shape = self._input_PhotoModele.shape[:2]))
+                        self._cleaner.setImageMasque(img, proba)
+                        self._show_image(img, proba)
+                    else:
+                        self._show_error(f"Il n’y a pas de masque en cours de traitement")
+                except StopIteration:
+                    self._show_info("Toute les images ont été traitées")
+                except ValueError as e:
+                    self._show_error(f"impossible de charger {e}")
         else : 
             self._show_error("Il n'y a aucun dossier à traiter")
         
     def _refuser_image(self):
-        if self.input_PhotoModele is not None:
-            try:
-                img, proba = self.input_PhotoModele.refuser()
-                self.cleaner.setImageMasque(img, proba)
-                self._show_image(img, proba)
+        if self._input_PhotoModele is not None:
+            if self._edit_pred_mode: 
+                self._show_error(f"Veuillez appliquer les modifications")
+            else:
+                try:
+                    img, proba = self._input_PhotoModele.refuser()
+                    self._cleaner.setImageMasque(img, proba)
+                    self._show_image(img, proba)
 
-            except StopIteration:
-                self._show_info("Toute les images ont été traitées")
-            except ValueError as e:
-                self._show_error(f"impossible de charger {e}")
+                except StopIteration:
+                    self._show_info("Toute les images ont été traitées")
+                except ValueError as e:
+                    self._show_error(f"impossible de charger {e}")
         else : 
             self._show_error("Il n'y a aucun dossier à traiter")
 
     def _update_image(self):
-        if self.input_PhotoModele is not None:
+        if self._input_PhotoModele is not None:
             try:
-                img, proba = self.input_PhotoModele.getActuel()
-                self.cleaner.setImageMasque(img, proba)
+                img, proba = self._input_PhotoModele.getActuel()
+                self._cleaner.setImageMasque(img, proba)
                 self._show_image(img, proba)
 
             except ValueError as e:
@@ -222,33 +237,29 @@ class SimpleCciAnnotatorQWidget(QWidget):
         else : 
             self._show_error("Il n'y a aucun dossier à traiter")
     
-    def _next_image(self):
-        if self.input_PhotoModele is not None:
-            try:
-                img, proba = next(self.input_PhotoModele)
-                self.cleaner.setImageMasque(img, proba)
-                self._show_image(img, proba)
-
-            except StopIteration:
-                self._show_info("Toute les images ont été traitées")
-            except ValueError as e:
-                self._show_error(f"impossible de charger {e}")
-        else : 
-            self._show_error("Il n'y a aucun dossier à traiter")
 
     def _show_image(self, img, proba):
+        #++++++++++++++++++ Image
         if (self._image_layer is None) or (self._image_layer not in self.napari_viewer.layers):
-            self._image_layer = self.napari_viewer.add_image(
+            image_layer = self.napari_viewer.add_image(
                 img,
                 name="Image d'entrée"
             )
+            if isinstance(image_layer, list):
+                self._show_error(f"Affichage de l'image failed: il y a plusieur layer de créer")
+            else:
+                self._image_layer = image_layer
         else : 
-            self._image_layer.data = img  # type: ignore
+            self._image_layer.data = img 
+        
+        #++++++++++++++++++ Pour le masquage
         if proba is not None:
+            
+            #~~~~~~~~~~~~~~~~~~ Prediction
             try:
                 if (self._pred_layer is None) or (self._pred_layer not in self.napari_viewer.layers):
-                    self._pred_layer = self.napari_viewer.add_image(
-                        SimpleCciAnnotatorQWidget.resize_back(proba, shape=(img.shape[0], img.shape[1])),
+                    pred_layer = self.napari_viewer.add_image(
+                        SegmentationBinaire.resize_back(proba, shape=(img.shape[0], img.shape[1])),
                         name="probability",
                         colormap="magma",
                         opacity=0.5,
@@ -256,37 +267,60 @@ class SimpleCciAnnotatorQWidget(QWidget):
                         blending="additive",
                         visible=False
                     )
+                    if isinstance(pred_layer, list):
+                        self._show_error(f"Affichage de la prediction failed: il y a plusieur layer de créer")
+                    else:
+                        self._pred_layer = pred_layer
                 else : 
-                    self._pred_layer.data = SimpleCciAnnotatorQWidget.resize_back(proba, shape=(img.shape[0], img.shape[1]))
+                    self._pred_layer.data = SegmentationBinaire.resize_back(proba, shape=(img.shape[0], img.shape[1]))
             except Exception as exc:
                 print(exc)
                 self._show_error(f"Affichage prediction failed: {exc}")
                 return
 
-            try:
-                self.cleaner.setImageMasque(img, proba)
-                if self._edit_pred_mode:
-                    mask_afficher = self.cleaner.getMasqueClean()
-                else:
-                    polygon = self.cleaner.getMasquePolygon()
-            except Exception as exc:
-                self._show_error(f"Clean failed: {exc}")
-                return
-        
-            try:
-                if self._edit_pred_mode:
-                    
-                    mask_afficher = SimpleCciAnnotatorQWidget.resize_back(mask_afficher, shape=(img.shape[0],img.shape[1]))
+
+            #~~~~~~~~~~~~~~~~~~ Label
+            if self._edit_pred_mode:
+
+                #------------------ Clean
+                try:
+                    self._cleaner.setImageMasque(img, proba)
+                    mask_afficher = self._cleaner.getMasqueClean()
+                except Exception as exc:
+                    self._show_error(f"Clean failed: {exc}")
+                    return
+                
+                #------------------ Masque
+                try:
+                    mask_afficher = SegmentationBinaire.resize_back(mask_afficher, shape=(img.shape[0],img.shape[1]))
                     if (self._mask_layer is None) or (self._mask_layer not in self.napari_viewer.layers):
+                        colormap = DirectLabelColormap()
+                        colormap.color_dict[1] = np.array([0, 1, 0, 1])
+                        colormap.color_dict[0] = np.array([0, 0, 0, 0])
                         self._mask_layer = self.napari_viewer.add_labels(
                                 mask_afficher,
                                 name="mask",
+                                colormap = colormap
                             )
-                        self._mask_layer.color_mode = "direct"
-                        self._mask_layer.color = {1: "lime"}
                     else:
                         self._mask_layer.data = mask_afficher
-                else:
+                except Exception as exc:
+                    self._show_error(f"affichage failed: {exc}")
+                    return
+            
+            #~~~~~~~~~~~~~~~~~~ Polygone
+            else:
+
+                #------------------ Clean
+                try:
+                    self._cleaner.setImageMasque(img, proba)
+                    polygon = self._cleaner.getMasquePolygon()
+                except Exception as exc:
+                    self._show_error(f"Clean failed: {exc}")
+                    return
+            
+                #------------------ Masque
+                try:
                     if (self._mask_shape_layer is None) or (self._mask_shape_layer not in self.napari_viewer.layers):
                         self._mask_shape_layer = self.napari_viewer.add_shapes(
                                 [p.copy() for p in polygon],
@@ -296,75 +330,48 @@ class SimpleCciAnnotatorQWidget(QWidget):
                             )
                     else:
                         self._mask_shape_layer.data = [p.copy() for p in polygon]
-            except Exception as exc:
-                self._show_error(f"affichage failed: {exc}")
-                return
-
-
-    def _points_to_mask(self, layer, shape : tuple[int, int]):
-        """
-        layer : napari Points layer
-        shape : (H, W)
-        """
-        if len(shape) != 2:
-            raise RuntimeError("le masque n'est pas à deux dimension")
-        mask = np.zeros(shape, dtype=np.uint8)
-
-        # napari Shapes = liste de polygones
-        for poly in layer.data:
-
-            poly = np.asarray(poly)
-
-            # sécurité : enlever polygones invalides
-            if poly.shape[0] < 3:
-                continue
-
-            # OpenCV attend (x, y)
-            pts = poly[:, ::-1].astype(np.int32)
-
-            # dessine le polygone plein
-            cv2.fillPoly(mask, [pts], 255)
-        mask = (mask > 0).astype(np.uint8) * 255
-        print(f"shape du mask : {mask.shape}, max = {np.max(mask)}, min = {np.min(mask)}")
-        return mask
-    
+                except Exception as exc:
+                    self._show_error(f"affichage failed: {exc}")
+                    return
 
     def _on_browse_model(self) -> None:
         model_dir, _ = QFileDialog.getOpenFileName(
             self,
-            "Select model folder (.pth will be loaded or yolov8n.pth will be copied)"
+            "Sélectionnez un modèle (un fichier .pth doit être sélectionné)"
         )
         if model_dir:
-            self._model_path_input.setText(model_dir)
-            self._on_load_model()
+            if model_dir.endswith(".pth"):
+                self._model_path_input.setText(model_dir)
+                self._on_load_model()
+            else:
+                self._show_error("Vous devez sélectionner un fichier .pth")
 
     def _on_browse_destination(self) -> None:
-        destination_dir = QFileDialog.getExistingDirectory(self, "Select destination for retrained model")
+        destination_dir = QFileDialog.getExistingDirectory(self, "Sélectionnez un dossier de sortie pour les masques et les images")
         if destination_dir:
             self.destination_path_input.setText(destination_dir)
             try:
-                if self.input_PhotoModele is not None:
-                    self.input_PhotoModele.setDestination(Path(self.destination_path_input.text()))
+                if self._input_PhotoModele is not None:
+                    self._input_PhotoModele.setDestination(Path(self.destination_path_input.text()))
             except ValueError as e:
                 self._show_error(f"Erreur de destination : {e}")
 
-    def _on_browse_input_row(self) -> None:
-        path_row_dir = QFileDialog.getExistingDirectory(self, "Select destination for retrained model")
+    def _on_browse_image_folder_input_(self) -> None:
+        path_row_dir = QFileDialog.getExistingDirectory(self, "Sélectionnez un dossier d’entrée pour les images")
         if path_row_dir:
-            self.row_path_input.setText(path_row_dir)
+            self._image_folder_path_input.setText(path_row_dir)
             extensions = {".png", ".jpg", ".jpeg", ".tif", ".tiff", ".bmp"}
             files = [f for f in Path(path_row_dir).iterdir() if f.suffix.lower() in extensions]
             if self.destination_path_input.text():
-                self.input_PhotoModele = PhotoModele(files, Path(self.destination_path_input.text()))
+                self._input_PhotoModele = PhotoModele(files, Path(self.destination_path_input.text()))
             else:
-                self.input_PhotoModele = PhotoModele(files)
+                self._input_PhotoModele = PhotoModele(files)
             self._next_image()
 
     def _on_mode_changed(self, edit_pred_mode: bool):
         self._edit_pred_mode = edit_pred_mode
 
         # masque polygon supprimer pour l'edit
-
         if edit_pred_mode:
             if self._mask_shape_layer is not None:
                 if self._mask_shape_layer in self.napari_viewer.layers:
@@ -378,15 +385,15 @@ class SimpleCciAnnotatorQWidget(QWidget):
 
     def _on_values_changed(self, thresh: int, simplification: float):
         # update cleaner
-        self.cleaner.setThresh(thresh)
-        self.cleaner.setForce_simplificication(simplification)
+        self._cleaner.setThresh(thresh)
+        self._cleaner.setForce_simplificication(simplification)
 
         # refresh image
-        if self.input_PhotoModele is None:
+        if self._input_PhotoModele is None:
             return
 
         try:
-            img, proba = self.input_PhotoModele.getActuel()
+            img, proba = self._input_PhotoModele.getActuel()
             self._show_image(img, proba)
 
         except Exception as e:
@@ -427,20 +434,15 @@ class SimpleCciAnnotatorQWidget(QWidget):
             return
 
         try:
-            #self._spinner_timer.start()
-            self.loading_widget.create_model(model_path, (256+128,512+256))
+            self._loading_widget.create_model(model_path, (256+128,512+256))
             self._model_path = model_path
             
         except Exception as exc:  # pragma: no cover - GUI runtime guard
             self._show_error(f"Could not load model: {exc}")
-            #self._on_retrain_error(f"Could not load model: {exc}")
             return
 
         if copied_default_model:
             self._show_info(f"No .pth model was found in the folder. Copied bundled model to: {model_path}")
-
-        #self._on_retrain_done(f"Model loaded: {model_path.name}")
-        #self._show_info(f"Model loaded: {model_path.name}")
 
 
     def _get_active_image_layer(self):
@@ -484,16 +486,16 @@ class SimpleCciAnnotatorQWidget(QWidget):
 
     def _on_predict(self):
         #image_paths = self.row_path_input.text()
-        if self.input_PhotoModele is not None:
-            image_paths = self.input_PhotoModele.images
+        if self._input_PhotoModele is not None:
+            image_paths = self._input_PhotoModele.images
 
-            self.loading_widget.show()
+            self._loading_widget.show()
             try:
-                self.loading_widget.start(image_paths)
-                self.loading_widget.finished.connect(self._on_loading_finished)
+                self._loading_widget.start(image_paths)
+                self._loading_widget.finished.connect(self._on_loading_finished)
             except AttributeError as e:
                 self._show_error(f"Erreur de prediction : {e}")
-                self.loading_widget.hide()
+                self._loading_widget.hide()
             except Exception as e:
                 self._show_error(f"Erreur de prediction : {e}")
                 self._on_loading_finished()            
@@ -501,23 +503,12 @@ class SimpleCciAnnotatorQWidget(QWidget):
             self._show_error("Pas de Photo disponible")
         
     def _on_loading_finished(self):
-        self.loading_widget.hide()
-        img, proba = self.input_PhotoModele.getActuel()
-        #self.cleaner.setImageMasque(img, proba)
-        self._show_image(img, proba)    
-
-    def _find_shapes_layer(self):
-        layer = self._get_layer_by_name(self.PRED_LAYER_NAME)
-        if self._is_shapes_layer(layer):
-            return layer
-
-        selected = self.napari_viewer.layers.selection.active
-        if self._is_shapes_layer(selected):
-            return selected
-        return None
-
-    def _tick_spinner(self) -> None:
-        self._retrain_button.setText(self._spinner_frames[self._spinner_index % len(self._spinner_frames)])
-        self._spinner_index += 1
+        self._loading_widget.hide()
+        if self._input_PhotoModele is not None:
+            img, proba = self._input_PhotoModele.getActuel()
+            #self.cleaner.setImageMasque(img, proba) #Pour soulager _show_image()
+            self._show_image(img, proba)    
+        else:
+            self._show_error("Il n'y a pas d'Image disponible ... 😢")
 
 
