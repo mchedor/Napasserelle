@@ -18,10 +18,9 @@ classifiers = [
 ]
 requires-python = ">=3.9"
 dependencies = [
-    "qtpy",
     "numpy",
     "opencv-python",
-
+    "napari[qt]"
 ]
 
 [project.optional-dependencies]
