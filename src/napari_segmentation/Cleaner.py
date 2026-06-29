@@ -190,11 +190,13 @@ class CleanerModele() :
             masque_clean = cv2.erode(masque_clean, kernel_erodeDilate, iterations=self.dilateErode_iteration)
         if self.dilate:
             masque_clean = cv2.dilate(masque_clean, kernel_erodeDilate, iterations=self.dilateErode_iteration)    
-    
+        
+        masque_clean = cv2.resize(masque_clean, dsize=self.resolution, interpolation=self.interpolation)
+        
         if self.force_simplificication > 0:
             masque_clean = self._simplify_mask(masque_clean, self.force_simplificication)
         
-        masque_clean = cv2.resize(masque_clean, dsize=self.resolution, interpolation=self.interpolation)
+        
         
         return masque_clean
     
