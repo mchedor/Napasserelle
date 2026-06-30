@@ -13,7 +13,6 @@ class CleanerModele() :
     
     def __init__(self):
 
-        self.img = None
         self.masque  = None
         self.resolution : tuple[int, int] = (512+256,256+128)
         self.reset()
@@ -36,71 +35,63 @@ class CleanerModele() :
 
         self.invert_masque : bool = True
         self.lightmode : bool = True
-    
-    def setImage(self, newImage):
-        #self.resolution = ((newImage.shape[1]//3)*2,(newImage.shape[0]//3)*2)
-        #self.resolution = ((newImage.shape[1]),(newImage.shape[0]))
-        #self.img = cv2.resize(newImage, dsize=self.resolution, interpolation=cv2.INTER_LINEAR)
-        #self.update_image()
-        raise RuntimeError("ne pas utiliser")
 
     def setMasque(self, newMasque):
         self.masque = newMasque
-        self._update_image()
+        #self._update_image()
     
-    def setImageMasque(self, newImage, newMasque):
+    def setMasqueResImg(self, newMasque, newImage):
         self.resolution = ((newImage.shape[1]),(newImage.shape[0]))
-        self.img = newImage
+        #self.img = newImage
         self.masque = newMasque
-        self._update_image()
+        #self._update_image()
 
     def setLightmode(self, newLightmode : bool):
         self.lightmode = newLightmode
-        self._update_image()
+        #self._update_image()
 
     def setBlur_size(self, newBlur_size):
         self.blur_size = newBlur_size
-        self._update_image()
+        #self._update_image()
 
     def setKer_size(self, newKer_size):
         self.ker_size = newKer_size
-        self._update_image()    
+        #self._update_image()    
 
     def setKer_dilateErode_size(self, newKer_size):
         self.ker_dilateErode_size = newKer_size
-        self._update_image()   
+        #self._update_image()   
 
     def setDilateErode_iteration(self, newDilateErode_iteration):
         self.dilateErode_iteration = newDilateErode_iteration
-        self._update_image()   
+        #self._update_image()   
     
     def setClean_open(self, newClean_open : bool):
         self.clean_open = newClean_open
-        self._update_image()
+        #self._update_image()
     
     def setClean_close(self, newClean_close : bool):
         self.clean_close = newClean_close
-        self._update_image()
+        #self._update_image()
 
     def setDilateErode(self, dialte : bool, erode : bool):
         self.dilate = dialte
         self.erode = erode
         assert (not (dialte and erode)) 
-        self._update_image()
+        #self._update_image()
 
     def setThresh(self, newThresh):
         self.thresh = newThresh
-        self._update_image()
+        #self._update_image()
 
     def setForce_simplificication(self, newForce_simplificication):
         self.force_simplificication = newForce_simplificication 
-        if self.img is not None:
-            self._update_image()
+        #self._update_image()
 
     
     def setInvert_masque(self, newInvert_masque):
         self.invert_masque = newInvert_masque
-        self._update_image()
+        #self._update_image()
     
 
 
@@ -228,19 +219,6 @@ class CleanerModele() :
         
         return polygons     
 
-    def clean_masque_a_enregister(self, masque, resolution, interpolation):
-        clean_masque = self.clean_masque(masque).astype(np.uint8)*255
-        return cv2.resize(clean_masque, dsize=resolution, interpolation=interpolation)
-
-    def _update_image(self): pass
-    def update_image(self) -> np.ndarray | None:
-        """-> masque clean
-        """           
-
-        if self.masque is None:
-            raise RuntimeError("Pas de masque de disponible")
-        self.masque_clean = self.clean_masque(self.masque)
-        return self.masque_clean
 
     def getMasqueClean(self):
         return self.clean_masque(self.masque)

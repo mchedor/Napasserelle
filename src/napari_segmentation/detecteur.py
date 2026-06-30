@@ -1,8 +1,10 @@
 from pathlib import Path
 import traceback
 
+from cv2.typing import MatLike
 from qtpy.QtWidgets import QWidget, QVBoxLayout, QLabel, QProgressBar, QApplication
 from qtpy.QtCore import Qt, QThread, Signal
+from torch.types import Tensor
 
 
 # ---------------------------
@@ -11,15 +13,15 @@ from qtpy.QtCore import Qt, QThread, Signal
 class WorkerThread(QThread):
     progress = Signal(int)  # signal pour la progression
     finished = Signal()     # signal quand terminé
-    error = Signal(str)
+    error = Signal(str)     # signal d'erreur
 
-    def __init__(self, model_path, image_paths, resolution, batch_size=8):
+    def __init__(self, model_path : Path, image_paths : list[Path], resolution : tuple[int, int], batch_size : int = 8):
         super().__init__()
         
-        self.model_path = model_path
-        self.image_paths = image_paths
-        self.resolution = resolution
-        self.batch_size = batch_size
+        self.model_path : Path = model_path
+        self.image_paths : list[Path] = image_paths
+        self.resolution : tuple[int, int] = resolution
+        self.batch_size : int= batch_size
 
     # -------------------------
     # 1. LOAD MODEL
@@ -40,34 +42,27 @@ class WorkerThread(QThread):
     # -------------------------
     # 2. PREPROCESS SINGLE IMAGE
     # -------------------------
-    def preprocess(self, path):
+    def preprocess(self, path : Path) -> Tensor:
         image = self.cv2.imread(path)
         if image is None:
             raise ValueError(f"Image invalide: {path}")
 
         image = self.cv2.cvtColor(image, self.cv2.COLOR_BGR2RGB)
 
-        augmented = self.transform(image=image)
-        image = augmented["image"]  # HWC float32
+        image = self.transform(image)
 
         return image
 
     # -------------------------
     # 3. MAKE BATCH
     # -------------------------
-    def make_batch(self, batch_paths):
-        images = []
-        valid_paths = []
+    def make_batch(self, batch_paths : list[Path]) -> tuple[Tensor|None, list[Path]]:
+        images = [self.preprocess(p) for p in batch_paths]
 
-        for p in batch_paths:
-            img = self.preprocess(p)
-            images.append(img)
-            valid_paths.append(p)
+        if len(images) == 0:
+            return None, []
 
-        tensor = self.torch.from_numpy(self.np.stack(images))
-        tensor = tensor.permute(0, 3, 1, 2).float().to(self.device)
-
-        return tensor, valid_paths
+        return self.torch.stack(images).to(self.device, non_blocking=True), batch_paths
 
     # -------------------------
     # 4. INFERENCE
@@ -81,10 +76,8 @@ class WorkerThread(QThread):
     # -------------------------
     # 5. POSTPROCESS SINGLE MASK
     # -------------------------
-    def postprocess(self, pred, path):
-
-        path = Path(path)
-    
+    def postprocess(self, pred, path : Path):
+   
         # dossier .temp_masques au même niveau que l'image
         out_dir = path.parent / "masques"
         out_dir.mkdir(exist_ok=True)
@@ -96,8 +89,6 @@ class WorkerThread(QThread):
         # sauvegarde
         pred = self.np.squeeze(pred)
         pred = (pred * 255).astype(self.np.uint8)
-        #pred2 = self.cv2.imread(out_path, self.cv2.IMREAD_GRAYSCALE).astype(self.np.uint8)
-        #pred3 = self.cv2.addWeighted(pred, 0.5, pred2, 0.5, 0)
         self.cv2.imwrite(str(out_path), pred)
 
     # -------------------------
@@ -129,7 +120,7 @@ class WorkerThread(QThread):
             step += 1
             self.progress.emit(int((step / total_steps) * partie_import))
 
-            import albumentations as A
+            from torchvision.transforms import v2
             step += 1
             self.progress.emit(int((step / total_steps) * partie_import))
 
@@ -138,17 +129,19 @@ class WorkerThread(QThread):
             self.cv2 = cv2
             self.np = np
             self.UnetPlusPlus = UnetPlusPlus
-            self.A = A
+            self.v2 = v2
 
             self.device = "cpu"#torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-            self.transform = A.Compose([
-                A.Resize(height=self.resolution[0], width=self.resolution[1]),
-                A.Normalize(
+            self.transform = v2.Compose([
+                v2.ToImage(),
+                v2.Resize(self.resolution),
+                v2.ToDtype(torch.float32, scale=True),
+                v2.Normalize(
                     mean=(0.485, 0.456, 0.406),
                     std=(0.229, 0.224, 0.225)
-                )
-            ]) # type: ignore
+                ),
+            ])
 
             self.load_model()
 
@@ -169,7 +162,7 @@ class WorkerThread(QThread):
                     self.postprocess(pred, path)
 
                 processed += len(batch_paths)
-                self.progress.emit(partie_import +int(processed * (100-partie_import) / total))
+                self.progress.emit(partie_import + int(processed * (100-partie_import) / total))
 
             self.finished.emit()
 
@@ -185,6 +178,7 @@ class WorkerThread(QThread):
 class LoadingWidget(QWidget):
     progress = Signal(int)
     finished = Signal()  # signal pour dire "on a fini"
+    error = Signal(str)     # signal d'erreur
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -222,6 +216,7 @@ class LoadingWidget(QWidget):
 
             self._thread.progress.connect(self.progress_bar.setValue)
             self._thread.finished.connect(self.on_finished)
+            self._thread.error.connect(self.error.emit)
 
             self._thread.start()
             #self.on_finished()

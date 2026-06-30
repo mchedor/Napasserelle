@@ -179,7 +179,7 @@ class SegmentationBinaire(QWidget):
             else:
                 try:
                     img, proba = next(self._input_PhotoModele)
-                    self._cleaner.setImageMasque(img, proba)
+                    self._cleaner.setMasqueResImg(proba, img)
                     self._show_image(img, proba)
 
                 except StopIteration:
@@ -197,7 +197,7 @@ class SegmentationBinaire(QWidget):
                 try:
                     if self._mask_shape_layer is not None:
                         img, proba = self._input_PhotoModele.accepter(self._mask_shape_layer.to_labels(labels_shape = self._input_PhotoModele.shape[:2]))
-                        self._cleaner.setImageMasque(img, proba)
+                        self._cleaner.setMasqueResImg(proba, img)
                         self._show_image(img, proba)
                     else:
                         self._show_error(f"Il n’y a pas de masque en cours de traitement")
@@ -215,7 +215,7 @@ class SegmentationBinaire(QWidget):
             else:
                 try:
                     img, proba = self._input_PhotoModele.refuser()
-                    self._cleaner.setImageMasque(img, proba)
+                    self._cleaner.setMasqueResImg(proba, img)
                     self._show_image(img, proba)
 
                 except StopIteration:
@@ -229,7 +229,7 @@ class SegmentationBinaire(QWidget):
         if self._input_PhotoModele is not None:
             try:
                 img, proba = self._input_PhotoModele.getActuel()
-                self._cleaner.setImageMasque(img, proba)
+                self._cleaner.setMasqueResImg(proba, img)
                 self._show_image(img, proba)
 
             except ValueError as e:
@@ -284,7 +284,7 @@ class SegmentationBinaire(QWidget):
 
                 #------------------ Clean
                 try:
-                    self._cleaner.setImageMasque(img, proba)
+                    self._cleaner.setMasqueResImg(proba, img)
                     mask_afficher = self._cleaner.getMasqueClean()
                 except Exception as exc:
                     self._show_error(f"Clean failed: {exc}")
@@ -313,7 +313,7 @@ class SegmentationBinaire(QWidget):
 
                 #------------------ Clean
                 try:
-                    self._cleaner.setImageMasque(img, proba)
+                    self._cleaner.setMasqueResImg(proba, img)
                     polygon = self._cleaner.getMasquePolygon()
                 except Exception as exc:
                     self._show_error(f"Clean failed: {exc}")
@@ -423,11 +423,11 @@ class SegmentationBinaire(QWidget):
             if pt_files:
                 model_path = pt_files[0]
             else:
-                default_model_source = Path(__file__).parent / "models" / "yolov8n.pth"
+                default_model_source = Path(__file__).parent / "models" / "resnext50_32x4d_plusplus_4.pth"
                 if not default_model_source.exists():
-                    self._show_error("No .pth found in selected folder, and bundled yolov8n.pth is missing.")
+                    self._show_error("No .pth found in selected folder, and bundled resnext50_32x4d_plusplus_4.pth is missing.")
                     return
-                self._show_error("No .pth found in selected folder, and bundled yolov8n.pth is missing.")
+                self._show_error("No .pth found in selected folder, and bundled resnext50_32x4d_plusplus_4.pth is missing.")
                 return
         else:
             self._show_error("Select a valid .pth model file or a folder.")
@@ -493,6 +493,7 @@ class SegmentationBinaire(QWidget):
             try:
                 self._loading_widget.start(image_paths)
                 self._loading_widget.finished.connect(self._on_loading_finished)
+                self._loading_widget.error.connect(self._show_error)
             except AttributeError as e:
                 self._show_error(f"Erreur de prediction : {e}")
                 self._loading_widget.hide()
