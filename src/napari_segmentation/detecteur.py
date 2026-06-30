@@ -1,9 +1,12 @@
 from pathlib import Path
 import traceback
 
-from cv2.typing import MatLike
 from qtpy.QtWidgets import QWidget, QVBoxLayout, QLabel, QProgressBar, QApplication
 from qtpy.QtCore import Qt, QThread, Signal
+
+
+
+from cv2.typing import MatLike
 from torch.types import Tensor
 
 

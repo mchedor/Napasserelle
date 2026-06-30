@@ -1,9 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-import napari
-from napari.layers import Labels, Shapes, Image
-from napari.utils import DirectLabelColormap
+
 import numpy as np
 import cv2 
 from qtpy.QtCore import QTimer
@@ -25,6 +23,13 @@ from .Cleaner import CleanerModele
 from .Photo_input import PhotoModele
 from .detecteur import LoadingWidget
 from ._modification_widget import EditWidget
+
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    import napari
+    from napari.layers import Labels, Shapes, Image
+    from napari.utils import DirectLabelColormap
 
 
 class SegmentationBinaire(QWidget):
@@ -196,7 +201,9 @@ class SegmentationBinaire(QWidget):
             else:
                 try:
                     if self._mask_shape_layer is not None:
-                        img, proba = self._input_PhotoModele.accepter(self._mask_shape_layer.to_labels(labels_shape = self._input_PhotoModele.shape[:2]))
+                        masque_a_stocker = ((self._mask_shape_layer.to_labels(labels_shape = self._input_PhotoModele.shape[:2])>0)*255).astype(np.uint8)
+
+                        img, proba = self._input_PhotoModele.accepter(masque_a_stocker)
                         self._cleaner.setMasqueResImg(proba, img)
                         self._show_image(img, proba)
                     else:

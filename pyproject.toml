@@ -20,13 +20,14 @@ requires-python = ">=3.9"
 dependencies = [
     "numpy",
     "opencv-python",
-    "napari[qt]"
+    "qtpy",
 ]
 
 [project.optional-dependencies]
 
 ai = ["segmentation-models-pytorch"]
 napari_all = ["napari[all]"]
+ez_install = ["napari[qt]", "segmentation-models-pytorch"]
 all = ["napari[all]", "segmentation-models-pytorch"]
 
 [build-system]

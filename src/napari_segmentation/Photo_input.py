@@ -80,7 +80,8 @@ class PhotoModele :
         out_path = out_dir / f"{img_path.stem}_mask.png"
         print(f"enregistrer dans {out_path}")
         
-        cv2.imwrite(str(out_path), masque)
+        
+        cv2.imwrite(str(out_path), masque.astype("uint8"))
         self.nettoyer()
         return self.getActuel()
 

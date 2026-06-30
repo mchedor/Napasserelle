@@ -1,7 +1,4 @@
 
-import warnings
-from typing import Callable
-
 import cv2
 import numpy as np
 
