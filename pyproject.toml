@@ -25,8 +25,9 @@ dependencies = [
 
 [project.optional-dependencies]
 
-ai = ["segmentation-models-pytorch","albumentations"]
-all = ["napari[all]", "segmentation-models-pytorch", "albumentations"]
+ai = ["segmentation-models-pytorch"]
+napari_all = ["napari[all]"]
+all = ["napari[all]", "segmentation-models-pytorch"]
 
 [build-system]
 requires = ["setuptools", "wheel"]
