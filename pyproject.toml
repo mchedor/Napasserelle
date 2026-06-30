@@ -21,6 +21,7 @@ dependencies = [
     "numpy",
     "opencv-python",
     "qtpy",
+    "napari>=0.4.19",
 ]
 
 [project.optional-dependencies]

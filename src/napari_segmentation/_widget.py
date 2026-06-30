@@ -25,11 +25,11 @@ from .detecteur import LoadingWidget
 from ._modification_widget import EditWidget
 
 from typing import TYPE_CHECKING
+from napari.utils import DirectLabelColormap
 
 if TYPE_CHECKING:
     import napari
     from napari.layers import Labels, Shapes, Image
-    from napari.utils import DirectLabelColormap
 
 
 class SegmentationBinaire(QWidget):
