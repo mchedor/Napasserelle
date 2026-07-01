@@ -1,13 +1,12 @@
 from pathlib import Path
 import traceback
-from torch.types import Tensor
+
 from qtpy.QtWidgets import QWidget, QVBoxLayout, QLabel, QProgressBar, QApplication
 from qtpy.QtCore import Qt, QThread, Signal
 
 
 
 from cv2.typing import MatLike
-
 
 
 # ---------------------------
@@ -45,7 +44,7 @@ class WorkerThread(QThread):
     # -------------------------
     # 2. PREPROCESS SINGLE IMAGE
     # -------------------------
-    def preprocess(self, path : Path) -> Tensor:
+    def preprocess(self, path : Path) :#-> Tensor
         image = self.cv2.imread(path)
         if image is None:
             raise ValueError(f"Image invalide: {path}")
@@ -59,7 +58,7 @@ class WorkerThread(QThread):
     # -------------------------
     # 3. MAKE BATCH
     # -------------------------
-    def make_batch(self, batch_paths : list[Path]) -> tuple[Tensor|None, list[Path]]:
+    def make_batch(self, batch_paths : list[Path]) : #-> tuple[Tensor|None, list[Path]]
         images = [self.preprocess(p) for p in batch_paths]
 
         if len(images) == 0:
