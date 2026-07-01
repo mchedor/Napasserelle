@@ -3,7 +3,8 @@ setlocal
 
 REM === Configuration ===
 set PYTHON_VERSION=3.11.9
-set ENV_DIR=%~dp0napari_env
+set "APP_DIR=%LOCALAPPDATA%\Napasserelle"
+set "ENV_DIR=%APP_DIR%\venv"
 
 echo ======================================
 echo Installation de Napari + Napasserelle
@@ -36,14 +37,9 @@ call "%ENV_DIR%\Scripts\activate.bat"
 python -m pip install --upgrade pip
 
 echo.
-echo Installation de PyTorch CPU...
+echo Installation de Napasserelle ...
 
-pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cpu
-
-echo.
-echo Installation de Napari...
-
-pip install "napari[all]"
+pip install "napari_segmentation[ez_install] @ https://github.com/mchedor/Napasserelle/archive/refs/heads/main.zip"
 
 echo.
 echo Installation du plugin...
