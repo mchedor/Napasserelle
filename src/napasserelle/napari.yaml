@@ -1,0 +1,12 @@
+name: napasserelle
+display_name: Segmentation Binaire de Passerelle
+visibility: public
+categories: ["Annotation", "Dataset", "Segmentation", "Visualization"]
+contributions:
+  commands:
+    - id: napasserelle.open_widget
+      title: Segmentation Binaire de Passerelle
+      python_name: napasserelle:SegmentationBinaireDePasserelle
+  widgets:
+    - command: napasserelle.open_widget
+      display_name: Napasserelle 

@@ -1,11 +1,11 @@
-from ._widget import SegmentationBinaire
+from ._widget import SegmentationBinaireDePasserelle
 
 # original version : https://github.com/CCI-GU-Sweden/simple-napari-cci-annotator/
 
 __version__ = "1.0.1"
 
 __all__ = [
-    "SegmentationBinaire",
+    "SegmentationBinaireDePasserelle",
 ]
 
 

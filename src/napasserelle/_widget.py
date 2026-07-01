@@ -32,7 +32,7 @@ if TYPE_CHECKING:
     from napari.layers import Labels, Shapes, Image
 
 
-class SegmentationBinaire(QWidget):
+class SegmentationBinaireDePasserelle(QWidget):
     """Binary segmentation tools for napari.
 
     Workflow:
@@ -266,7 +266,7 @@ class SegmentationBinaire(QWidget):
             try:
                 if (self._pred_layer is None) or (self._pred_layer not in self.napari_viewer.layers):
                     pred_layer = self.napari_viewer.add_image(
-                        SegmentationBinaire.resize_back(proba, shape=(img.shape[0], img.shape[1])),
+                        SegmentationBinaireDePasserelle.resize_back(proba, shape=(img.shape[0], img.shape[1])),
                         name="probability",
                         colormap="magma",
                         opacity=0.5,
@@ -279,7 +279,7 @@ class SegmentationBinaire(QWidget):
                     else:
                         self._pred_layer = pred_layer
                 else : 
-                    self._pred_layer.data = SegmentationBinaire.resize_back(proba, shape=(img.shape[0], img.shape[1]))
+                    self._pred_layer.data = SegmentationBinaireDePasserelle.resize_back(proba, shape=(img.shape[0], img.shape[1]))
             except Exception as exc:
                 print(exc)
                 self._show_error(f"Affichage prediction failed: {exc}")
@@ -299,7 +299,7 @@ class SegmentationBinaire(QWidget):
                 
                 #------------------ Masque
                 try:
-                    mask_afficher = SegmentationBinaire.resize_back(mask_afficher, shape=(img.shape[0],img.shape[1]))
+                    mask_afficher = SegmentationBinaireDePasserelle.resize_back(mask_afficher, shape=(img.shape[0],img.shape[1]))
                     if (self._mask_layer is None) or (self._mask_layer not in self.napari_viewer.layers):
                         colormap = DirectLabelColormap()
                         colormap.color_dict[1] = np.array([0, 1, 0, 1])

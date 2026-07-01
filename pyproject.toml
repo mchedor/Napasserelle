@@ -1,5 +1,5 @@
 [project]
-name = "napari_segmentation"
+name = "napasserelle"
 dynamic = ["version"]
 description = "Plugin napari pour fabriquer, superviser et traiter des masques de segmentation binaire à partir d'un modèle de segmentation-models-pytorch."
 readme = "README.md"
@@ -45,7 +45,7 @@ where = ["src"]
 "*" = ["*.yaml"]
 
 [project.entry-points."napari.manifest"]
-napari_segmentation = "napari_segmentation:napari.yaml"
+napasserelle = "napasserelle:napari.yaml"
 
 
 [tool.black]
