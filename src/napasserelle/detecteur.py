@@ -17,10 +17,10 @@ class WorkerThread(QThread):
     finished = Signal()     # signal quand terminé
     error = Signal(str)     # signal d'erreur
 
-    def __init__(self, model_path : Path, image_paths : list[Path], resolution : tuple[int, int], batch_size : int = 8):
+    def __init__(self, model_path : Path | str, image_paths : list[Path], resolution : tuple[int, int], batch_size : int = 8):
         super().__init__()
         
-        self.model_path : Path = model_path
+        self.model_path : Path | str = model_path
         self.image_paths : list[Path] = image_paths
         self.resolution : tuple[int, int] = resolution
         self.batch_size : int= batch_size
@@ -29,16 +29,23 @@ class WorkerThread(QThread):
     # 1. LOAD MODEL
     # -------------------------
     def load_model(self):
+        if isinstance(self.model_path, Path):
         
-        self.model = self.UnetPlusPlus(
-            encoder_name="resnext50_32x4d",
-            encoder_weights=None,
-            in_channels=3,
-            classes=1
-        ).to(self.device)
+            self.model = self.smp.UnetPlusPlus(
+                encoder_name="resnext50_32x4d",
+                encoder_weights=None,
+                in_channels=3,
+                classes=1
+            ).to(self.device)
+
+            self.model.load_state_dict(self.torch.load(self.model_path, map_location=self.device,weights_only=True))
+        elif isinstance(self.model_path, str):
+            self.model = self.smp.from_pretrained(self.model_path)
+        else:
+            raise RuntimeError("self.model_path n'a pas le bon format")
         
 
-        self.model.load_state_dict(self.torch.load(self.model_path, map_location=self.device,weights_only=True))
+        
         self.model.eval()
 
     # -------------------------
@@ -118,7 +125,7 @@ class WorkerThread(QThread):
             step += 1
             self.progress.emit(int((step / total_steps) * partie_import))
 
-            from segmentation_models_pytorch import UnetPlusPlus
+            import segmentation_models_pytorch as smp
             step += 1
             self.progress.emit(int((step / total_steps) * partie_import))
 
@@ -130,7 +137,7 @@ class WorkerThread(QThread):
             self.torch = torch
             self.cv2 = cv2
             self.np = np
-            self.UnetPlusPlus = UnetPlusPlus
+            self.smp = smp
             self.v2 = v2
 
             self.device = "cpu"#torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -188,7 +195,7 @@ class LoadingWidget(QWidget):
         layout = QVBoxLayout(self)
         layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
-        self.model_path : Path | None = None
+        self.model_path : Path | str | None = None
         self.resolution : tuple[int, int] | None = None
         self.device = "cpu"
 
@@ -205,7 +212,7 @@ class LoadingWidget(QWidget):
 
         self._thread : WorkerThread   # sera créé à chaque start
 
-    def create_model(self, model_path : Path, resolution : tuple[int, int], device : str = "cpu"):
+    def create_model(self, model_path : Path | str, resolution : tuple[int, int], device : str = "cpu"):
         self.model_path = model_path
         self.resolution = resolution
         self.device = device

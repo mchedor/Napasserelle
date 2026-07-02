@@ -27,10 +27,22 @@ from ._modification_widget import EditWidget
 from typing import TYPE_CHECKING
 from napari.utils import DirectLabelColormap
 
+from huggingface_hub import model_info
+from huggingface_hub.utils import RepositoryNotFoundError
+
 if TYPE_CHECKING:
     import napari
     from napari.layers import Labels, Shapes, Image
 
+
+def _is_huggingface_repo(repo_id: str) -> bool:
+    try:
+        model_info(repo_id)
+        return True
+    except RepositoryNotFoundError:
+        return False
+    except Exception:
+        return False
 
 class SegmentationBinaireDePasserelle(QWidget):
     """Binary segmentation tools for napari.
@@ -72,6 +84,9 @@ class SegmentationBinaireDePasserelle(QWidget):
         #------------------ Model
         self._model_path_input = QLineEdit()
         self._model_path_input.setPlaceholderText("Path to Unet model (.pth)")
+
+        validate_button = QPushButton("validate")
+        validate_button.clicked.connect(self._on_load_model)
 
         browse_button = QPushButton("Browse")
         browse_button.clicked.connect(self._on_browse_model)
@@ -125,6 +140,7 @@ class SegmentationBinaireDePasserelle(QWidget):
         row_model = QHBoxLayout()
         row_model.addWidget(QLabel("Model"))
         row_model.addWidget(self._model_path_input)
+        row_model.addWidget(validate_button)
         row_model.addWidget(browse_button)
 
         #++++++++++++++++++ Prediction
@@ -408,37 +424,39 @@ class SegmentationBinaireDePasserelle(QWidget):
 
     def _on_load_model(self) -> None:
         model_input = self._model_path_input.text().strip()
+
+        #Si il n'y a rien
         if not model_input:
-            self._show_error("Model path cannot be empty. Select a .pth file or a folder.")
-            return
+            reponse = QMessageBox.question(self,"Modele vide","Aucun modele détecté, voulez vous télécharger le modele par défault ?",QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,QMessageBox.StandardButton.No)
+            if reponse == QMessageBox.StandardButton.Yes:
+                model_input = "mchedor/PASSEREL"
+            else:
+                return
 
-        model_path_input = Path(model_input)
-        if not model_path_input.exists():
-            self._show_error("Model path does not exist.")
-            return
-
-        model_path: Path
+        model_path: Path | str
         copied_default_model = False
 
-        if model_path_input.is_file():
-            if model_path_input.suffix.lower() != ".pth":
-                self._show_error("Select a valid .pth model file or a folder.")
-                return
-            model_path = model_path_input
-        elif model_path_input.is_dir():
-            pt_files = sorted(model_path_input.glob("*.pth"))
-            if pt_files:
-                model_path = pt_files[0]
-            else:
-                default_model_source = Path(__file__).parent / "models" / "resnext50_32x4d_plusplus_4.pth"
-                if not default_model_source.exists():
-                    self._show_error("No .pth found in selected folder, and bundled resnext50_32x4d_plusplus_4.pth is missing.")
+        model_path_input = Path(model_input)
+        if model_path_input.exists():
+            if model_path_input.is_file():
+                if model_path_input.suffix.lower() != ".pth":
+                    self._show_error("Select a valid .pth model file or a folder.")
                     return
-                self._show_error("No .pth found in selected folder, and bundled resnext50_32x4d_plusplus_4.pth is missing.")
-                return
+                model_path = model_path_input
+            elif model_path_input.is_dir():
+                pt_files = sorted(model_path_input.glob("*.pth"))
+                if pt_files:
+                    model_path = pt_files[0]
+                else:
+                    self._show_error("Aucun .pth n'a été trouver dans ce dossier.")
+                    return
         else:
-            self._show_error("Select a valid .pth model file or a folder.")
-            return
+            if _is_huggingface_repo(model_input):
+                model_path = model_input
+            else:
+                self._show_error("Ce chemin n'existe pas et n'est pas un repo Hugging Face")
+                return
+
 
         try:
             self._loading_widget.create_model(model_path, (256+128,512+256))
@@ -494,6 +512,10 @@ class SegmentationBinaireDePasserelle(QWidget):
     def _on_predict(self):
         #image_paths = self.row_path_input.text()
         if self._input_PhotoModele is not None:
+            if self._loading_widget.model_path is None:
+                self._on_load_model()
+                if self._loading_widget.model_path is None:
+                    return
             image_paths = self._input_PhotoModele.images
 
             self._loading_widget.show()
