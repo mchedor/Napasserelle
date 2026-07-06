@@ -57,21 +57,24 @@ class WorkerThread(QThread):
             raise ValueError(f"Image invalide: {path}")
 
         image = self.cv2.cvtColor(image, self.cv2.COLOR_BGR2RGB)
-
+        rotation = False
+        if image.shape[0] > image.shape[1]:  # hauteur > largeur
+            image = self.cv2.rotate(image, self.cv2.ROTATE_90_CLOCKWISE)
+            rotation = True
         image = self.transform(image)
 
-        return image
+        return image, rotation
 
     # -------------------------
     # 3. MAKE BATCH
     # -------------------------
     def make_batch(self, batch_paths : list[Path]) : #-> tuple[Tensor|None, list[Path]]
-        images = [self.preprocess(p) for p in batch_paths]
+        images, rotations = map(list, zip(*[self.preprocess(p) for p in batch_paths]))
 
         if len(images) == 0:
-            return None, []
+            return None, [], []
 
-        return self.torch.stack(images).to(self.device, non_blocking=True), batch_paths
+        return self.torch.stack(images).to(self.device, non_blocking=True), batch_paths, rotations
 
     # -------------------------
     # 4. INFERENCE
@@ -85,7 +88,7 @@ class WorkerThread(QThread):
     # -------------------------
     # 5. POSTPROCESS SINGLE MASK
     # -------------------------
-    def postprocess(self, pred, path : Path):
+    def postprocess(self, pred, path : Path, rotations : bool):
    
         # dossier .temp_masques au même niveau que l'image
         out_dir = path.parent / "masques"
@@ -98,6 +101,10 @@ class WorkerThread(QThread):
         # sauvegarde
         pred = self.np.squeeze(pred)
         pred = (pred * 255).astype(self.np.uint8)
+
+        if rotations:  # hauteur > largeur
+            pred = self.cv2.rotate(pred, self.cv2.ROTATE_90_COUNTERCLOCKWISE)
+            
         self.cv2.imwrite(str(out_path), pred)
 
     # -------------------------
@@ -162,13 +169,13 @@ class WorkerThread(QThread):
 
                 batch_paths = self.image_paths[i:min(i + self.batch_size, total)]
 
-                batch_tensor, valid_paths = self.make_batch(batch_paths)
+                batch_tensor, valid_paths, rotations = self.make_batch(batch_paths)
 
                 preds = self.predict(batch_tensor)
                 preds = preds.detach().cpu().numpy()
 
-                for pred, path in zip(preds, valid_paths):
-                    self.postprocess(pred, path)
+                for pred, path, rotation in zip(preds, valid_paths, rotations):
+                    self.postprocess(pred, path, rotation)
 
                 processed += len(batch_paths)
                 self.progress.emit(partie_import + int(processed * (100-partie_import) / total))
