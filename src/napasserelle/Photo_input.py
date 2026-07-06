@@ -30,6 +30,9 @@ class PhotoModele :
                 raise ValueError("La destination n'est pas un dossier")
         self.destination = newDestiation
 
+    def __len__(self) -> int:
+        return len(self.images)
+    
     def __repr__(self) -> str:
         return self.images[self.index].name
     

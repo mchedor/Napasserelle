@@ -27,8 +27,8 @@ from ._modification_widget import EditWidget
 from typing import TYPE_CHECKING
 from napari.utils import DirectLabelColormap
 
-from huggingface_hub import model_info
-from huggingface_hub.utils import RepositoryNotFoundError
+from huggingface_hub import model_info, snapshot_download
+from huggingface_hub.utils import RepositoryNotFoundError, LocalEntryNotFoundError
 
 if TYPE_CHECKING:
     import napari
@@ -42,6 +42,16 @@ def _is_huggingface_repo(repo_id: str) -> bool:
     except RepositoryNotFoundError:
         return False
     except Exception:
+        return False
+    
+def _is_model_cached(repo_id: str) -> bool:
+    try:
+        snapshot_download(
+            repo_id=repo_id,
+            local_files_only=True,
+        )
+        return True
+    except LocalEntryNotFoundError:
         return False
 
 class SegmentationBinaireDePasserelle(QWidget):
@@ -160,6 +170,11 @@ class SegmentationBinaireDePasserelle(QWidget):
         row_destination.addWidget(self.destination_path_input)
         row_destination.addWidget(browse_destination_button)
 
+        #++++++++++++++++++ Compteur
+        row_Compteur = QHBoxLayout()
+        self.compeur_label = QLabel("Image restante à traiter : 0")
+        row_Compteur.addWidget(self.compeur_label)
+
         #++++++++++++++++++ Navigation
         col_navigation = QVBoxLayout()
         col_navigation.addWidget(next_button)
@@ -182,6 +197,7 @@ class SegmentationBinaireDePasserelle(QWidget):
         layout.addLayout(row_prediction)
         layout.addLayout(row_input)
         layout.addLayout(row_destination)
+        layout.addLayout(row_Compteur)
         layout.addLayout(col_navigation)
         layout.addLayout(col_modification)
         layout.addStretch(1)
@@ -262,6 +278,7 @@ class SegmentationBinaireDePasserelle(QWidget):
     
 
     def _show_image(self, img, proba):
+        self.compeur_label.setText(f"Image restante à traiter : {len(self._input_PhotoModele)}")
         #++++++++++++++++++ Image
         if (self._image_layer is None) or (self._image_layer not in self.napari_viewer.layers):
             image_layer = self.napari_viewer.add_image(
@@ -427,11 +444,19 @@ class SegmentationBinaireDePasserelle(QWidget):
 
         #Si il n'y a rien
         if not model_input:
-            reponse = QMessageBox.question(self,"Modele vide","Aucun modele détecté, voulez vous télécharger le modele par défault ?",QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,QMessageBox.StandardButton.No)
-            if reponse == QMessageBox.StandardButton.Yes:
-                model_input = "mchedor/PASSEREL"
-            else:
-                return
+            model_par_default = "mchedor/PASSEREL"
+            if _is_model_cached(model_par_default):
+                reponse = QMessageBox.question(self,"Modele vide","Aucun modele détecté, voulez vous utliser le modele par défault ?",QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,QMessageBox.StandardButton.No)
+                if reponse == QMessageBox.StandardButton.Yes:
+                    model_input = "mchedor/PASSEREL"
+                else:
+                    return
+            else : 
+                reponse = QMessageBox.question(self,"Modele vide","Aucun modele détecté, voulez vous télécharger le modele par défault ?",QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,QMessageBox.StandardButton.No)
+                if reponse == QMessageBox.StandardButton.Yes:
+                    model_input = "mchedor/PASSEREL"
+                else:
+                    return
 
         model_path: Path | str
         copied_default_model = False
