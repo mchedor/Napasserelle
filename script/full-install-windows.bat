@@ -44,7 +44,7 @@ pip install "napasserelle[ez_install] @ https://github.com/mchedor/Napasserelle/
 echo.
 echo Création du raccourci Bureau...
 
-powershell -NoProfile -ExecutionPolicy Bypass -Command "$s=(New-Object -ComObject WScript.Shell).CreateShortcut([Environment]::GetFolderPath('Desktop')+'\Napari.lnk');$s.TargetPath='%ENV_DIR%\Scripts\python.exe';$s.Arguments='-m napari';$s.WorkingDirectory='%ENV_DIR%';$s.IconLocation='%ENV_DIR%\Scripts\python.exe';$s.Save();"
+powershell -NoProfile -ExecutionPolicy Bypass -Command "$s=(New-Object -ComObject WScript.Shell).CreateShortcut([Environment]::GetFolderPath('Desktop')+'\Napari.lnk');$s.TargetPath='%ENV_DIR%\Scripts\python.exe';$s.Arguments='-m napari';$s.WorkingDirectory='%ENV_DIR%';$s.IconLocation='%ENV_DIR%\Lib\site-packages\napari\resources\icon.ico';$s.Save();"
 
 echo.
 echo Installation terminée.
