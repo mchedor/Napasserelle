@@ -311,14 +311,14 @@ class SegmentationBinaireDePasserelle(QWidget):
                         visible=False
                     )
                     if isinstance(pred_layer, list):
-                        self._show_error(f"Affichage de la prediction failed: il y a plusieur layer de créer")
+                        self._show_error(f"Affichage de la prédiction failed: il y a plusieur layer de créer")
                     else:
                         self._pred_layer = pred_layer
                 else : 
                     self._pred_layer.data = SegmentationBinaireDePasserelle.resize_back(proba, shape=(img.shape[0], img.shape[1]))
             except Exception as exc:
                 print(exc)
-                self._show_error(f"Affichage prediction failed: {exc}")
+                self._show_error(f"Affichage prédiction failed: {exc}")
                 return
 
 
