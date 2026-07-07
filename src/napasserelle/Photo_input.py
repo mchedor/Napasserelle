@@ -21,6 +21,8 @@ class PhotoModele :
 
     def setImages(self, newImages : list[Path]):
         newImages = [p for p in newImages if not p.name.endswith("_mask.png")]
+        if not newImages:
+            raise NoImagesError("Aucune images compatibles trouvées.\n Soit il n'y a pas d'images, soit elles finissent toute par _mask.png")
         self.images = sorted(newImages)
         self.index = -1
     
@@ -29,6 +31,33 @@ class PhotoModele :
         if newDestiation.is_dir == False:
                 raise ValueError("La destination n'est pas un dossier")
         self.destination = newDestiation
+    
+    def update_images_with_masks(self):
+        """
+        Met à jour self.images en ne gardant que les images
+        pour lesquelles le fichier masque existe.
+        """
+
+        filtered_images = []
+        nouvel_index = -1
+        for i in range(len(self.images)):
+            img_path = self.images[i]
+            mask_path = (
+                img_path.parent
+                / self.name_dos_racine_relative
+                / self.name_dos_masques_temp
+                / Path(img_path.stem + "_mask.png")
+            )
+            if mask_path.exists():
+                filtered_images.append(img_path)
+                if i>self.index and nouvel_index==-1:
+                    nouvel_index = i
+        self.index = nouvel_index
+
+        if filtered_images:
+            self.images = filtered_images
+        else:
+            raise NoImagesError("Pas d'images avec un masque")
 
     def __len__(self) -> int:
         return len(self.images)
@@ -135,3 +164,7 @@ class PhotoModele :
             self.index %= len(self.images)
         else:
             raise StopIteration("Toutes les images ont été traitées")
+
+class NoImagesError(ValueError):
+    def __init__(self, msg : str) -> None:
+        super().__init__(f"NoImagesError : {msg}")

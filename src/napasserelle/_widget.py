@@ -20,7 +20,7 @@ from qtpy.QtGui import QKeySequence
 
 
 from .Cleaner import CleanerModele  
-from .Photo_input import PhotoModele
+from .Photo_input import PhotoModele, NoImagesError
 from .detecteur import LoadingWidget
 from ._modification_widget import EditWidget
 
@@ -173,7 +173,10 @@ class SegmentationBinaireDePasserelle(QWidget):
         #++++++++++++++++++ Compteur
         row_Compteur = QHBoxLayout()
         self.compeur_label = QLabel("Image restante à traiter : 0")
+        que_masque_button = QPushButton("Ne garder que les images avec des masques")
+        que_masque_button.clicked.connect(self._on_que_masque_button)
         row_Compteur.addWidget(self.compeur_label)
+        row_Compteur.addWidget(que_masque_button)
 
         #++++++++++++++++++ Navigation
         col_navigation = QVBoxLayout()
@@ -399,14 +402,18 @@ class SegmentationBinaireDePasserelle(QWidget):
     def _on_browse_image_folder_input_(self) -> None:
         path_row_dir = QFileDialog.getExistingDirectory(self, "Sélectionnez un dossier d’entrée pour les images")
         if path_row_dir:
-            self._image_folder_path_input.setText(path_row_dir)
-            extensions = {".png", ".jpg", ".jpeg", ".tif", ".tiff", ".bmp"}
-            files = [f for f in Path(path_row_dir).iterdir() if f.suffix.lower() in extensions]
-            if self.destination_path_input.text():
-                self._input_PhotoModele = PhotoModele(files, Path(self.destination_path_input.text()))
-            else:
-                self._input_PhotoModele = PhotoModele(files)
-            self._next_image()
+            try:
+                self._image_folder_path_input.setText(path_row_dir)
+                extensions = {".png", ".jpg", ".jpeg", ".tif", ".tiff", ".bmp"}
+                files = [f for f in Path(path_row_dir).iterdir() if f.suffix.lower() in extensions]
+                if self.destination_path_input.text():
+                    self._input_PhotoModele = PhotoModele(files, Path(self.destination_path_input.text()))
+                else:
+                    self._input_PhotoModele = PhotoModele(files)
+                self._next_image()
+            except NoImagesError as e:
+                self._show_error(str(e))
+
 
     def _on_mode_changed(self, edit_pred_mode: bool):
         self._edit_pred_mode = edit_pred_mode
@@ -565,5 +572,17 @@ class SegmentationBinaireDePasserelle(QWidget):
             self._show_image(img, proba)    
         else:
             self._show_error("Il n'y a pas d'Image disponible ... 😢")
+    
+    def _on_que_masque_button(self):
+        if self._input_PhotoModele:
+            try:
+                self._input_PhotoModele.update_images_with_masks()
+                img, proba = self._input_PhotoModele.getActuel()
+                self._show_image(img, proba)   
+            except NoImagesError as e:
+                self._show_error(str(e))
+        else : 
+            self._show_error("Il n'y a aucun dossier à traiter")        
+
 
 
