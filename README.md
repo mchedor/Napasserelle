@@ -8,4 +8,4 @@ https://github.com/CCI-GU-Sweden/simple-napari-cci-annotator/
 Dans le but de visualiser et de masquer des passerelles sur des images archéologiques pour faire de la reconstitution photogrammétrique.
 
 ### Utilisation
-cf [Manuel utilisateur](Manuel_Utilisateur_napari_segmentation.pdf)
+cf [Manuel utilisateur](Manuel_Utilisateur_Napasserelle.pdf)
