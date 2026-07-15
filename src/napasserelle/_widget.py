@@ -20,17 +20,39 @@ from qtpy.QtGui import QKeySequence
 
 
 from .Cleaner import CleanerModele  
-from .Photo_input import PhotoModele
+from .Photo_input import PhotoModele, NoImagesError
 from .detecteur import LoadingWidget
 from ._modification_widget import EditWidget
 
 from typing import TYPE_CHECKING
 from napari.utils import DirectLabelColormap
 
+from huggingface_hub import model_info, snapshot_download
+from huggingface_hub.utils import RepositoryNotFoundError, LocalEntryNotFoundError
+
 if TYPE_CHECKING:
     import napari
     from napari.layers import Labels, Shapes, Image
 
+
+def _is_huggingface_repo(repo_id: str) -> bool:
+    try:
+        model_info(repo_id)
+        return True
+    except RepositoryNotFoundError:
+        return False
+    except Exception:
+        return False
+    
+def _is_model_cached(repo_id: str) -> bool:
+    try:
+        snapshot_download(
+            repo_id=repo_id,
+            local_files_only=True,
+        )
+        return True
+    except LocalEntryNotFoundError:
+        return False
 
 class SegmentationBinaireDePasserelle(QWidget):
     """Binary segmentation tools for napari.
@@ -72,6 +94,9 @@ class SegmentationBinaireDePasserelle(QWidget):
         #------------------ Model
         self._model_path_input = QLineEdit()
         self._model_path_input.setPlaceholderText("Path to Unet model (.pth)")
+
+        validate_button = QPushButton("validate")
+        validate_button.clicked.connect(self._on_load_model)
 
         browse_button = QPushButton("Browse")
         browse_button.clicked.connect(self._on_browse_model)
@@ -125,6 +150,7 @@ class SegmentationBinaireDePasserelle(QWidget):
         row_model = QHBoxLayout()
         row_model.addWidget(QLabel("Model"))
         row_model.addWidget(self._model_path_input)
+        row_model.addWidget(validate_button)
         row_model.addWidget(browse_button)
 
         #++++++++++++++++++ Prediction
@@ -143,6 +169,14 @@ class SegmentationBinaireDePasserelle(QWidget):
         row_destination.addWidget(QLabel("Destination"))
         row_destination.addWidget(self.destination_path_input)
         row_destination.addWidget(browse_destination_button)
+
+        #++++++++++++++++++ Compteur
+        row_Compteur = QHBoxLayout()
+        self.compeur_label = QLabel("Image restante à traiter : 0")
+        que_masque_button = QPushButton("Ne garder que les images avec des masques")
+        que_masque_button.clicked.connect(self._on_que_masque_button)
+        row_Compteur.addWidget(self.compeur_label)
+        row_Compteur.addWidget(que_masque_button)
 
         #++++++++++++++++++ Navigation
         col_navigation = QVBoxLayout()
@@ -166,6 +200,7 @@ class SegmentationBinaireDePasserelle(QWidget):
         layout.addLayout(row_prediction)
         layout.addLayout(row_input)
         layout.addLayout(row_destination)
+        layout.addLayout(row_Compteur)
         layout.addLayout(col_navigation)
         layout.addLayout(col_modification)
         layout.addStretch(1)
@@ -246,6 +281,7 @@ class SegmentationBinaireDePasserelle(QWidget):
     
 
     def _show_image(self, img, proba):
+        self.compeur_label.setText(f"Image restante à traiter : {len(self._input_PhotoModele)}")
         #++++++++++++++++++ Image
         if (self._image_layer is None) or (self._image_layer not in self.napari_viewer.layers):
             image_layer = self.napari_viewer.add_image(
@@ -275,14 +311,14 @@ class SegmentationBinaireDePasserelle(QWidget):
                         visible=False
                     )
                     if isinstance(pred_layer, list):
-                        self._show_error(f"Affichage de la prediction failed: il y a plusieur layer de créer")
+                        self._show_error(f"Affichage de la prédiction failed: il y a plusieur layer de créer")
                     else:
                         self._pred_layer = pred_layer
                 else : 
                     self._pred_layer.data = SegmentationBinaireDePasserelle.resize_back(proba, shape=(img.shape[0], img.shape[1]))
             except Exception as exc:
                 print(exc)
-                self._show_error(f"Affichage prediction failed: {exc}")
+                self._show_error(f"Affichage prédiction failed: {exc}")
                 return
 
 
@@ -366,14 +402,18 @@ class SegmentationBinaireDePasserelle(QWidget):
     def _on_browse_image_folder_input_(self) -> None:
         path_row_dir = QFileDialog.getExistingDirectory(self, "Sélectionnez un dossier d’entrée pour les images")
         if path_row_dir:
-            self._image_folder_path_input.setText(path_row_dir)
-            extensions = {".png", ".jpg", ".jpeg", ".tif", ".tiff", ".bmp"}
-            files = [f for f in Path(path_row_dir).iterdir() if f.suffix.lower() in extensions]
-            if self.destination_path_input.text():
-                self._input_PhotoModele = PhotoModele(files, Path(self.destination_path_input.text()))
-            else:
-                self._input_PhotoModele = PhotoModele(files)
-            self._next_image()
+            try:
+                self._image_folder_path_input.setText(path_row_dir)
+                extensions = {".png", ".jpg", ".jpeg", ".tif", ".tiff", ".bmp"}
+                files = [f for f in Path(path_row_dir).iterdir() if f.suffix.lower() in extensions]
+                if self.destination_path_input.text():
+                    self._input_PhotoModele = PhotoModele(files, Path(self.destination_path_input.text()))
+                else:
+                    self._input_PhotoModele = PhotoModele(files)
+                self._next_image()
+            except NoImagesError as e:
+                self._show_error(str(e))
+
 
     def _on_mode_changed(self, edit_pred_mode: bool):
         self._edit_pred_mode = edit_pred_mode
@@ -408,37 +448,47 @@ class SegmentationBinaireDePasserelle(QWidget):
 
     def _on_load_model(self) -> None:
         model_input = self._model_path_input.text().strip()
+
+        #Si il n'y a rien
         if not model_input:
-            self._show_error("Model path cannot be empty. Select a .pth file or a folder.")
-            return
+            model_par_default = "mchedor/PASSEREL"
+            if _is_model_cached(model_par_default):
+                reponse = QMessageBox.question(self,"Modele vide","Aucun modele détecté, voulez vous utliser le modele par défault ?",QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,QMessageBox.StandardButton.No)
+                if reponse == QMessageBox.StandardButton.Yes:
+                    model_input = "mchedor/PASSEREL"
+                else:
+                    return
+            else : 
+                reponse = QMessageBox.question(self,"Modele vide","Aucun modele détecté, voulez vous télécharger le modele par défault ?",QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,QMessageBox.StandardButton.No)
+                if reponse == QMessageBox.StandardButton.Yes:
+                    model_input = "mchedor/PASSEREL"
+                else:
+                    return
 
-        model_path_input = Path(model_input)
-        if not model_path_input.exists():
-            self._show_error("Model path does not exist.")
-            return
-
-        model_path: Path
+        model_path: Path | str
         copied_default_model = False
 
-        if model_path_input.is_file():
-            if model_path_input.suffix.lower() != ".pth":
-                self._show_error("Select a valid .pth model file or a folder.")
-                return
-            model_path = model_path_input
-        elif model_path_input.is_dir():
-            pt_files = sorted(model_path_input.glob("*.pth"))
-            if pt_files:
-                model_path = pt_files[0]
-            else:
-                default_model_source = Path(__file__).parent / "models" / "resnext50_32x4d_plusplus_4.pth"
-                if not default_model_source.exists():
-                    self._show_error("No .pth found in selected folder, and bundled resnext50_32x4d_plusplus_4.pth is missing.")
+        model_path_input = Path(model_input)
+        if model_path_input.exists():
+            if model_path_input.is_file():
+                if model_path_input.suffix.lower() != ".pth":
+                    self._show_error("Select a valid .pth model file or a folder.")
                     return
-                self._show_error("No .pth found in selected folder, and bundled resnext50_32x4d_plusplus_4.pth is missing.")
-                return
+                model_path = model_path_input
+            elif model_path_input.is_dir():
+                pt_files = sorted(model_path_input.glob("*.pth"))
+                if pt_files:
+                    model_path = pt_files[0]
+                else:
+                    self._show_error("Aucun .pth n'a été trouver dans ce dossier.")
+                    return
         else:
-            self._show_error("Select a valid .pth model file or a folder.")
-            return
+            if _is_huggingface_repo(model_input):
+                model_path = model_input
+            else:
+                self._show_error("Ce chemin n'existe pas et n'est pas un repo Hugging Face")
+                return
+
 
         try:
             self._loading_widget.create_model(model_path, (256+128,512+256))
@@ -494,6 +544,10 @@ class SegmentationBinaireDePasserelle(QWidget):
     def _on_predict(self):
         #image_paths = self.row_path_input.text()
         if self._input_PhotoModele is not None:
+            if self._loading_widget.model_path is None:
+                self._on_load_model()
+                if self._loading_widget.model_path is None:
+                    return
             image_paths = self._input_PhotoModele.images
 
             self._loading_widget.show()
@@ -518,5 +572,17 @@ class SegmentationBinaireDePasserelle(QWidget):
             self._show_image(img, proba)    
         else:
             self._show_error("Il n'y a pas d'Image disponible ... 😢")
+    
+    def _on_que_masque_button(self):
+        if self._input_PhotoModele:
+            try:
+                self._input_PhotoModele.update_images_with_masks()
+                img, proba = self._input_PhotoModele.getActuel()
+                self._show_image(img, proba)   
+            except NoImagesError as e:
+                self._show_error(str(e))
+        else : 
+            self._show_error("Il n'y a aucun dossier à traiter")        
+
 
 

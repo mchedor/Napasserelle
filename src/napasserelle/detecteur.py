@@ -17,10 +17,10 @@ class WorkerThread(QThread):
     finished = Signal()     # signal quand terminé
     error = Signal(str)     # signal d'erreur
 
-    def __init__(self, model_path : Path, image_paths : list[Path], resolution : tuple[int, int], batch_size : int = 8):
+    def __init__(self, model_path : Path | str, image_paths : list[Path], resolution : tuple[int, int], batch_size : int = 8):
         super().__init__()
         
-        self.model_path : Path = model_path
+        self.model_path : Path | str = model_path
         self.image_paths : list[Path] = image_paths
         self.resolution : tuple[int, int] = resolution
         self.batch_size : int= batch_size
@@ -29,16 +29,23 @@ class WorkerThread(QThread):
     # 1. LOAD MODEL
     # -------------------------
     def load_model(self):
+        if isinstance(self.model_path, Path):
         
-        self.model = self.UnetPlusPlus(
-            encoder_name="resnext50_32x4d",
-            encoder_weights=None,
-            in_channels=3,
-            classes=1
-        ).to(self.device)
+            self.model = self.smp.UnetPlusPlus(
+                encoder_name="resnext50_32x4d",
+                encoder_weights=None,
+                in_channels=3,
+                classes=1
+            ).to(self.device)
+
+            self.model.load_state_dict(self.torch.load(self.model_path, map_location=self.device,weights_only=True))
+        elif isinstance(self.model_path, str):
+            self.model = self.smp.from_pretrained(self.model_path)
+        else:
+            raise RuntimeError("self.model_path n'a pas le bon format")
         
 
-        self.model.load_state_dict(self.torch.load(self.model_path, map_location=self.device,weights_only=True))
+        
         self.model.eval()
 
     # -------------------------
@@ -50,21 +57,24 @@ class WorkerThread(QThread):
             raise ValueError(f"Image invalide: {path}")
 
         image = self.cv2.cvtColor(image, self.cv2.COLOR_BGR2RGB)
-
+        rotation = False
+        if image.shape[0] > image.shape[1]:  # hauteur > largeur
+            image = self.cv2.rotate(image, self.cv2.ROTATE_90_CLOCKWISE)
+            rotation = True
         image = self.transform(image)
 
-        return image
+        return image, rotation
 
     # -------------------------
     # 3. MAKE BATCH
     # -------------------------
     def make_batch(self, batch_paths : list[Path]) : #-> tuple[Tensor|None, list[Path]]
-        images = [self.preprocess(p) for p in batch_paths]
+        images, rotations = map(list, zip(*[self.preprocess(p) for p in batch_paths]))
 
         if len(images) == 0:
-            return None, []
+            return None, [], []
 
-        return self.torch.stack(images).to(self.device, non_blocking=True), batch_paths
+        return self.torch.stack(images).to(self.device, non_blocking=True), batch_paths, rotations
 
     # -------------------------
     # 4. INFERENCE
@@ -78,7 +88,7 @@ class WorkerThread(QThread):
     # -------------------------
     # 5. POSTPROCESS SINGLE MASK
     # -------------------------
-    def postprocess(self, pred, path : Path):
+    def postprocess(self, pred, path : Path, rotations : bool):
    
         # dossier .temp_masques au même niveau que l'image
         out_dir = path.parent / "masques"
@@ -91,6 +101,10 @@ class WorkerThread(QThread):
         # sauvegarde
         pred = self.np.squeeze(pred)
         pred = (pred * 255).astype(self.np.uint8)
+
+        if rotations:  # hauteur > largeur
+            pred = self.cv2.rotate(pred, self.cv2.ROTATE_90_COUNTERCLOCKWISE)
+            
         self.cv2.imwrite(str(out_path), pred)
 
     # -------------------------
@@ -118,7 +132,7 @@ class WorkerThread(QThread):
             step += 1
             self.progress.emit(int((step / total_steps) * partie_import))
 
-            from segmentation_models_pytorch import UnetPlusPlus
+            import segmentation_models_pytorch as smp
             step += 1
             self.progress.emit(int((step / total_steps) * partie_import))
 
@@ -130,7 +144,7 @@ class WorkerThread(QThread):
             self.torch = torch
             self.cv2 = cv2
             self.np = np
-            self.UnetPlusPlus = UnetPlusPlus
+            self.smp = smp
             self.v2 = v2
 
             self.device = "cpu"#torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -155,13 +169,13 @@ class WorkerThread(QThread):
 
                 batch_paths = self.image_paths[i:min(i + self.batch_size, total)]
 
-                batch_tensor, valid_paths = self.make_batch(batch_paths)
+                batch_tensor, valid_paths, rotations = self.make_batch(batch_paths)
 
                 preds = self.predict(batch_tensor)
                 preds = preds.detach().cpu().numpy()
 
-                for pred, path in zip(preds, valid_paths):
-                    self.postprocess(pred, path)
+                for pred, path, rotation in zip(preds, valid_paths, rotations):
+                    self.postprocess(pred, path, rotation)
 
                 processed += len(batch_paths)
                 self.progress.emit(partie_import + int(processed * (100-partie_import) / total))
@@ -188,7 +202,7 @@ class LoadingWidget(QWidget):
         layout = QVBoxLayout(self)
         layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
-        self.model_path : Path | None = None
+        self.model_path : Path | str | None = None
         self.resolution : tuple[int, int] | None = None
         self.device = "cpu"
 
@@ -205,7 +219,7 @@ class LoadingWidget(QWidget):
 
         self._thread : WorkerThread   # sera créé à chaque start
 
-    def create_model(self, model_path : Path, resolution : tuple[int, int], device : str = "cpu"):
+    def create_model(self, model_path : Path | str, resolution : tuple[int, int], device : str = "cpu"):
         self.model_path = model_path
         self.resolution = resolution
         self.device = device
