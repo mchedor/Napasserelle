@@ -39,7 +39,7 @@ python -m pip install --upgrade pip
 echo.
 echo Installation de Napasserelle ...
 
-pip install napasserelle[ez_install]
+pip install "napasserelle[ez_install] @ https://github.com/mchedor/Napasserelle/archive/refs/heads/stable.zip"
 
 echo.
 echo Création du raccourci Bureau...
